@@ -1,0 +1,47 @@
+{
+  "name": "aigen-sdk",
+  "version": "0.0.11",
+  "description": "Create hyper-personalized AI images and infinite variations with secure pre-signed URLs. Easy to use via Node.js or CLI, globally cached for speed.",
+  "bin": {
+    "aigen-sdk": "./index.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "sdk",
+    "ai-images",
+    "image-generation",
+    "hyper-personalized-content",
+    "personalized-images",
+    "generative-ai",
+    "generative-url",
+    "pre-signed-urls",
+    "image-variations",
+    "cdn",
+    "stable-diffusion",
+    "image-api",
+    "nodejs",
+    "cli",
+    "content-automation",
+    "dynamic-images",
+    "openai",
+    "openai image 1"
+  ],
+  "homepage": "https://aigen.run/#/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yumankind/aigen-sdk.git"
+  },
+  "author": "Aigen.run",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Yumankind/aigen-sdk/issues"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "pako": "^2.1.0"
+  }
+}
