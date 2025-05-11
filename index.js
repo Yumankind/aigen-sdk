@@ -14,7 +14,6 @@ class AigenSDK {
 
   async createSignature(path, timestamp, queryParams) {
     try {
-      
       // Get the current user ID
       const keyId = this.secret.split('/')[0]
       if (!keyId) {
@@ -67,7 +66,7 @@ class AigenSDK {
       return `${keyId}:${base64Signature}:${timestamp}`
     } catch (error) {
       console.error('Signature creation failed:', error)
-      return null
+      throw error
     }
   }
 
@@ -171,6 +170,75 @@ class AigenSDK {
   }
 
   /**
+   * Create an image from a template
+   * @param {Object} options - Options for image creation
+   * @param {string} options.template - Template ID in format 'templateId/version'
+   * @param {Object} options.data - Key-value pairs for template variables
+   * @param {number} options.duration - Signature duration in hours (default: 24)
+   * @returns {Promise<string>} - URL to the generated image
+   */
+  async createImageFromTemplate(options = {}) {
+    if (!options.template) {
+      throw new Error('Template ID is required')
+    }
+
+    const templateParts = options.template.split('/')
+    let templateId, version
+    
+    if (templateParts.length === 2) {
+      // Format: templateId/version
+      templateId = templateParts[0]
+      version = templateParts[1]
+    } else {
+      // Format: templateId (use default version)
+      templateId = options.template
+      version = '1' // Default version
+    }
+    
+    const data = options.data || {}
+    const duration = options.duration || 24 // in hours
+    
+    const userId = this.secret.split('/')[1]
+    
+    // Build the path
+    const path = `canvas/${userId}/${version}/${templateId}.png`
+    
+    // Create timestamp
+    const timestamp = new Date().getTime()
+    const expirationTime = timestamp + 1000 * 60 * 60 * duration
+    
+    // Generate signature with the data as query params
+    const signature = await this.createSignature(path, expirationTime, data)
+    
+    // Build query string from data
+    let queryString = ''
+    if (data && Object.keys(data).length > 0) {
+      queryString = Object.entries(data)
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+        .join('&')
+    }
+    
+    // Construct final URL
+    return `${this.baseUrl}/${path}?${queryString}${queryString ? '&' : ''}sig=${signature}`
+  }
+
+  /**
+   * Generate an image from a prompt
+   * @param {string|Object} promptOrOptions - The prompt to generate an image from or an options object for template-based generation
+   * @param {Object} [options] - Optional parameters (when first parameter is a prompt string)
+   * @returns {Promise<string>} - URL to the generated image
+   */
+  async createImage(promptOrOptions, options = {}) {
+    // Handle template-based image creation
+    if (typeof promptOrOptions === 'object' && promptOrOptions !== null) {
+      return this.createImageFromTemplate(promptOrOptions)
+    }
+    
+    // Otherwise, treat as prompt-based image generation (original generateImage behavior)
+    return this.generateImage(promptOrOptions, options)
+  }
+
+  /**
    * Delete an image or unpublish a page
    * @param {string} publicUrl - The public URL of the image or page
    * @param {boolean} unpublish - Whether to unpublish the page (default: false)
@@ -213,10 +281,11 @@ if (require.main === module) {
     
     Usage:
       aigen generate "<prompt>" [options] - generate an AI image
+      aigen template "<templateId>" [--data=<key>=<value>...] - create an image from a template
       aigen save-secret - save the secret in the current directory for future use
       aigen delete "<public_url>" - delete an image from the server
 
-    Options:
+    Options for generate:
       --width=<width>     Image width (default: 768)
       --height=<height>   Image height (default: 768)
       --model=<model>     Model to use (default: flux-schnell@black-forest-labs)
@@ -224,8 +293,15 @@ if (require.main === module) {
       --original=<url>    Original image to use as a base for the generation
       --save-secret       Save the secret to .aigen-secret file in the current directory
       
-    Example:
-      aigen generate "a beautiful sunset over the ocean" --width=1024 --height=768 --secret=your_secret_key --save-secret
+    Options for template:
+      --data.<key>=<value>  Set template variable (can be used multiple times)
+      --secret=<secret>     Your secret key for signing URLs (required)
+      --duration=<hours>    Signature duration in hours (default: 24)
+      --save-secret         Save the secret to .aigen-secret file in the current directory
+      
+    Examples:
+      aigen generate "a beautiful sunset over the ocean" --width=1024 --height=768 --secret=your_secret_key
+      aigen template "abc123/2" --data.name="John" --data.company="Acme Inc" --secret=your_secret_key
 
     📖 Go to https://aigen.run/#/developers for more information
     `)
@@ -330,6 +406,97 @@ if (require.main === module) {
         console.error('Error:', error.message)
         process.exit(1)
       })
+  }
+
+  // Handle template command
+  if (command === 'template') {
+    const templateId = args[1]
+    if (!templateId) {
+      console.error('Error: Template ID is required.')
+      process.exit(1)
+    }
+
+    // Parse template variables from --data.<key>=<value> arguments
+    const data = {}
+    args.slice(2).forEach(arg => {
+      if (arg.startsWith('--data.')) {
+        const parts = arg.substring(7).split('=')
+        if (parts.length === 2) {
+          const key = parts[0]
+          const value = parts[1]
+          data[key] = value
+        }
+      }
+    })
+
+    const options = {
+      template: templateId,
+      data: data
+    }
+
+    // Get duration if specified
+    const durationArg = args.find(arg => arg.startsWith('--duration='))
+    if (durationArg) {
+      options.duration = parseInt(durationArg.split('=')[1])
+    }
+
+    // Try to load secret from .aigen-secret file if it exists
+    const secretFilePath = path.join(process.cwd(), '.aigen-secret')
+    let secret
+    if (fs.existsSync(secretFilePath)) {
+      try {
+        secret = fs.readFileSync(secretFilePath, 'utf8').trim()
+      } catch (error) {
+        console.warn('Warning: Could not read secret from .aigen-secret file:', error.message)
+      }
+    }
+
+    // Check for secret in arguments or environment
+    const secretArg = args.find(arg => arg.startsWith('--secret='))
+    secret = secretArg ? secretArg.split('=')[1] : secret || process.env.AIGEN_SECRET
+
+    if (!secret) {
+      console.error(
+        'Error: Secret key is required. Provide it with --secret=<secretKey>, set AIGEN_SECRET environment variable, or use --save-secret to save it for future use.'
+      )
+      process.exit(1)
+    }
+
+    // Save secret if requested
+    const saveSecret = args.includes('--save-secret')
+    if (saveSecret) {
+      try {
+        fs.writeFileSync(secretFilePath, secret, 'utf8')
+        console.log(`Secret saved to ${secretFilePath}`)
+
+        // Add to .gitignore
+        const gitignorePath = path.join(process.cwd(), '.gitignore')
+        if (fs.existsSync(gitignorePath)) {
+          const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8')
+          if (!gitignoreContent.split('\n').some(line => line.trim() === '.aigen-secret')) {
+            fs.appendFileSync(gitignorePath, '\n# AigenSDK secret\n.aigen-secret\n')
+            console.log('Added .aigen-secret to .gitignore')
+          }
+        } else {
+          fs.writeFileSync(gitignorePath, '# AigenSDK secret\n.aigen-secret\n')
+          console.log('Created .gitignore with .aigen-secret entry')
+        }
+      } catch (error) {
+        console.warn('Warning: Could not save secret to file:', error.message)
+      }
+    }
+
+    const aigen = new AigenSDK(secret)
+    aigen
+      .createImageFromTemplate(options)
+      .then(url => {
+        console.log(`Template image URL: ${url}`)
+      })
+      .catch(error => {
+        console.error('Error:', error.message)
+        process.exit(1)
+      })
+    return
   }
 
   // Handle generate and publish commands
